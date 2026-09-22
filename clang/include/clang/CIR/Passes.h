@@ -18,6 +18,12 @@
 #include <memory>
 
 namespace cir {
+/// Experimental, explicitly contracted MatMul raising and SME lowering.
+std::unique_ptr<mlir::Pass> createRaiseMatMulPass(bool enableOpenMP = false);
+std::unique_ptr<mlir::Pass> createVectorizeMatMulPass();
+void populateMatMulToSMEPipeline(mlir::OpPassManager &pm);
+void populateSMEToLLVMPipeline(mlir::OpPassManager &pm);
+
 namespace direct {
 /// Create a pass that fully lowers CIR to the LLVMIR dialect.
 std::unique_ptr<mlir::Pass> createConvertCIRToLLVMPass();

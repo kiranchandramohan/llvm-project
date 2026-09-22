@@ -3491,6 +3491,15 @@ def fapple_link_rtlib : Flag<["-"], "fapple-link-rtlib">, Group<f_Group>,
   HelpText<"Force linking the clang builtins runtime library">;
 
 /// ClangIR-specific options - BEGIN
+def fclangir_matmul_to_sme : Flag<["-"], "fclangir-matmul-to-sme">,
+  Visibility<[ClangOption, CC1Option]>, Group<f_Group>,
+  HelpText<"Enable experimental ClangIR MatMul to Arm SME lowering">,
+  MarshallingInfoFlag<FrontendOpts<"ClangIRMatMulToSME">>;
+def fclangir_matmul_options_EQ : Joined<["-"], "fclangir-matmul-options=">,
+  Visibility<[ClangOption, CC1Option]>, Group<f_Group>,
+  HelpText<"Options for experimental ClangIR MatMul lowering">,
+  MarshallingInfoString<FrontendOpts<"ClangIRMatMulOptions">>;
+
 def clangir_disable_passes : Flag<["-"], "clangir-disable-passes">,
   Visibility<[ClangOption, CC1Option]>,
   HelpText<"Disable CIR transformations pipeline">,

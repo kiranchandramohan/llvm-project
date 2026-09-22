@@ -2007,8 +2007,8 @@ static mlir::Value tryEmitFMulAdd(mlir::Location loc, const BinOpInfo &op,
          "Only fadd/fsub can be the root of an fmuladd.");
 
   // Check whether this op is fusable, i.e. -ffp-contract=on. -ffp-contract=fast
-  // needs fast-math flags on the fmul/fadd, which CIR does not model yet, so it
-  // fuses nowhere for now.
+  // is retained as per-operation cir.contract attributes on fmul/fadd for
+  // subsequent optimization rather than being fused here.
   assert(!cir::MissingFeatures::fastMathFlags());
   if (!op.fpFeatures.allowFPContractWithinStatement())
     return nullptr;
@@ -2158,7 +2158,13 @@ mlir::Value ScalarExprEmitter::emitMul(const BinOpInfo &ops) {
 
   if (cir::isFPOrVectorOfFPType(ops.lhs.getType())) {
     CIRGenFunction::CIRGenFPOptionsRAII FPOptsRAII(cgf, ops.fpFeatures);
-    return builder.createFMul(loc, ops.lhs, ops.rhs);
+    mlir::Value result = builder.createFMul(loc, ops.lhs, ops.rhs);
+    // Record cross-statement contraction permission on each participating
+    // instruction. Statement-local contraction is represented by cir.fmuladd.
+    if (ops.fpFeatures.allowFPContractAcrossStatement() &&
+        !builder.getIsFPConstrained())
+      result.getDefiningOp()->setAttr("cir.contract", builder.getUnitAttr());
+    return result;
   }
 
   if (ops.isFixedPointOp())
@@ -2325,7 +2331,13 @@ mlir::Value ScalarExprEmitter::emitAdd(const BinOpInfo &ops) {
     // Try to form an fmuladd.
     if (mlir::Value fmuladd = tryEmitFMulAdd(loc, ops, builder))
       return fmuladd;
-    return builder.createFAdd(loc, ops.lhs, ops.rhs);
+    mlir::Value result = builder.createFAdd(loc, ops.lhs, ops.rhs);
+    // Record cross-statement contraction permission on each participating
+    // instruction. Statement-local contraction is represented by cir.fmuladd.
+    if (ops.fpFeatures.allowFPContractAcrossStatement() &&
+        !builder.getIsFPConstrained())
+      result.getDefiningOp()->setAttr("cir.contract", builder.getUnitAttr());
+    return result;
   }
 
   if (ops.isFixedPointOp())

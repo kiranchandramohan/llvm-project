@@ -5392,6 +5392,16 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Args.hasFlag(options::OPT_fclangir, options::OPT_fno_clangir, false))
     CmdArgs.push_back("-fclangir");
+  if (Args.hasArg(options::OPT_fclangir_matmul_to_sme) &&
+      !Args.hasFlag(options::OPT_fclangir, options::OPT_fno_clangir, false))
+    D.Diag(diag::err_drv_argument_only_allowed_with)
+        << "-fclangir-matmul-to-sme" << "-fclangir";
+  if (Args.hasArg(options::OPT_fclangir_matmul_options_EQ) &&
+      !Args.hasArg(options::OPT_fclangir_matmul_to_sme))
+    D.Diag(diag::err_drv_argument_only_allowed_with)
+        << "-fclangir-matmul-options=" << "-fclangir-matmul-to-sme";
+  Args.AddAllArgs(CmdArgs, options::OPT_fclangir_matmul_to_sme);
+  Args.AddAllArgs(CmdArgs, options::OPT_fclangir_matmul_options_EQ);
 
   if (IsOpenMPDevice) {
     // We have to pass the triple of the host if compiling for an OpenMP device.

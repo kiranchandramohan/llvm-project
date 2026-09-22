@@ -436,6 +436,10 @@ public:
   /// Options to control ClangIR library optimization
   std::string ClangIRLibOptOptions;
 
+  /// Experimental MatMul recognition and Arm SME code generation.
+  bool ClangIRMatMulToSME = false;
+  std::string ClangIRMatMulOptions;
+
   CodeCompleteOptions CodeCompleteOpts;
 
   /// Specifies the output format of the AST.

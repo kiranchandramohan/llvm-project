@@ -561,7 +561,12 @@ mlir::LogicalResult lowerConstrainableFPOp(
     return op->emitError("expected LLVM result type for floating-point op");
 
   if (!fenv) {
-    rewriter.replaceOpWithNewOp<LLVMOp>(op, llvmResTy, operands);
+    bool contract = isa<cir::FAddOp, cir::FMulOp>(op) &&
+                    op->getAttrOfType<mlir::UnitAttr>("cir.contract");
+    auto lowered = rewriter.replaceOpWithNewOp<LLVMOp>(op, llvmResTy, operands);
+    if (contract)
+      lowered->setAttr("fastmathFlags", mlir::LLVM::FastmathFlagsAttr::get(
+          rewriter.getContext(), mlir::LLVM::FastmathFlags::contract));
     return mlir::success();
   }
 
@@ -5799,13 +5804,18 @@ void populateCIRToLLVMPasses(mlir::OpPassManager &pm, bool enableOpenMP) {
 std::unique_ptr<llvm::Module>
 lowerDirectlyFromCIRToLLVMIR(mlir::ModuleOp mlirModule, LLVMContext &llvmCtx,
                              bool enableOpenMP, StringRef mlirSaveTempsOutFile,
-                             llvm::vfs::FileSystem *fs) {
+                             llvm::vfs::FileSystem *fs,
+                             llvm::function_ref<void(mlir::OpPassManager &)>
+                                 populatePipeline) {
   llvm::TimeTraceScope scope("lower from CIR to LLVM directly");
 
   mlir::MLIRContext *mlirCtx = mlirModule.getContext();
 
   mlir::PassManager pm(mlirCtx);
-  populateCIRToLLVMPasses(pm, enableOpenMP);
+  if (populatePipeline)
+    populatePipeline(pm);
+  else
+    populateCIRToLLVMPasses(pm, enableOpenMP);
 
   (void)mlir::applyPassManagerCLOptions(pm);
 

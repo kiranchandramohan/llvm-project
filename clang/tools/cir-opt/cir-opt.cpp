@@ -13,9 +13,17 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/ArmSME/IR/ArmSME.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/OpenMP/Transforms/Passes.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
 #include "mlir/Pass/PassRegistry.h"
@@ -47,7 +55,11 @@ int main(int argc, char **argv) {
 #ifdef CLANG_INCLUDE_TESTS
   cir::test::registerTestCIRAliasAnalysisPass();
 #endif
-  registry.insert<mlir::memref::MemRefDialect, mlir::LLVM::LLVMDialect>();
+  registry.insert<mlir::memref::MemRefDialect, mlir::LLVM::LLVMDialect,
+                  mlir::affine::AffineDialect, mlir::arith::ArithDialect,
+                  mlir::arm_sme::ArmSMEDialect, mlir::func::FuncDialect,
+                  mlir::linalg::LinalgDialect, mlir::scf::SCFDialect,
+                  mlir::ub::UBDialect, mlir::vector::VectorDialect>();
 
   ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
     return mlir::createCIRCanonicalizePass();
@@ -89,6 +101,16 @@ int main(int argc, char **argv) {
   ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
     return mlir::createCallConvLoweringPass();
   });
+
+  mlir::registerPass([] { return cir::createRaiseMatMulPass(); });
+  mlir::registerPass([] { return cir::createVectorizeMatMulPass(); });
+  mlir::PassPipelineRegistration<>(
+      "cir-matmul-to-sme",
+      "Lower raised MatMul through scalable vectors to ArmSME",
+      [](mlir::OpPassManager &pm) { cir::populateMatMulToSMEPipeline(pm); });
+  mlir::PassPipelineRegistration<>(
+      "cir-sme-to-llvm", "Lower MatMul ArmSME to LLVM with streaming/ZA ABI",
+      [](mlir::OpPassManager &pm) { cir::populateSMEToLLVMPipeline(pm); });
 
   mlir::omp::registerOpenMPPasses();
   mlir::registerTransformsPasses();

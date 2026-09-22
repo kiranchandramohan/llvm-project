@@ -10,11 +10,14 @@
 #include "CIRDiagnosticHandler.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Target/LLVMIR/Dialect/ArmSME/ArmSMEToLLVMIRTranslation.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/Basic/DiagnosticCodeGen.h"
 #include "clang/CIR/CIRGenerator.h"
 #include "clang/CIR/CIRToCIRPasses.h"
 #include "clang/CIR/LowerToLLVM.h"
+#include "clang/CIR/Passes.h"
 #include "clang/CodeGen/BackendUtil.h"
 #include "clang/CodeGen/ModuleLinker.h"
 #include "clang/Frontend/CompilerInstance.h"
@@ -55,15 +58,6 @@ getBackendActionFromOutputType(CIRGenAction::OutputType Action) {
   // We should only get here if a non-enum value is passed in or we went through
   // the assert(false) case above
   llvm_unreachable("Unsupported output type!");
-}
-
-static std::unique_ptr<llvm::Module>
-lowerFromCIRToLLVMIR(mlir::ModuleOp MLIRModule, llvm::LLVMContext &LLVMCtx,
-                     bool EnableOpenMP,
-                     llvm::StringRef mlirSaveTempsOutFile = {},
-                     llvm::vfs::FileSystem *fs = nullptr) {
-  return direct::lowerDirectlyFromCIRToLLVMIR(MLIRModule, LLVMCtx, EnableOpenMP,
-                                              mlirSaveTempsOutFile, fs);
 }
 
 class CIRGenConsumer : public clang::ASTConsumer {
@@ -195,9 +189,38 @@ public:
           MlirModule->print(out);
       }
 
-      std::unique_ptr<llvm::Module> LLVMModule = lowerFromCIRToLLVMIR(
-          MlirModule, LLVMCtx, C.getLangOpts().OpenMP, mlirSaveTempsOutFile,
-          &CI.getVirtualFileSystem());
+      std::unique_ptr<mlir::Pass> RaiseMatMul;
+      if (FEOptions.ClangIRMatMulToSME) {
+        if (!C.getTargetInfo().hasFeature("sme") ||
+            !C.getTargetInfo().getTriple().isAArch64() ||
+            C.getTargetInfo().getPointerWidth(LangAS::Default) != 64) {
+          CI.getDiagnostics().Report(CI.getDiagnostics().getCustomDiagID(
+              DiagnosticsEngine::Error,
+              "-fclangir-matmul-to-sme requires an AArch64 LP64 target with SME"));
+          return;
+        }
+        mlir::registerArmSMEDialectTranslation(MlirCtx);
+        RaiseMatMul = createRaiseMatMulPass(C.getLangOpts().OpenMP);
+        if (mlir::failed(RaiseMatMul->initializeOptions(
+                FEOptions.ClangIRMatMulOptions, [&](const llvm::Twine &Message) {
+                  MlirModule.emitError() << Message;
+                  return mlir::failure();
+                })))
+          return;
+      }
+      auto PopulatePipeline = [&](mlir::OpPassManager &PM) {
+        if (RaiseMatMul) {
+          PM.addPass(std::move(RaiseMatMul));
+          populateMatMulToSMEPipeline(PM);
+          populateSMEToLLVMPipeline(PM);
+        } else {
+          direct::populateCIRToLLVMPasses(PM, C.getLangOpts().OpenMP);
+        }
+      };
+      std::unique_ptr<llvm::Module> LLVMModule =
+          direct::lowerDirectlyFromCIRToLLVMIR(
+              MlirModule, LLVMCtx, C.getLangOpts().OpenMP, mlirSaveTempsOutFile,
+              &CI.getVirtualFileSystem(), PopulatePipeline);
 
       if (linkInModules(*LLVMModule))
         return;

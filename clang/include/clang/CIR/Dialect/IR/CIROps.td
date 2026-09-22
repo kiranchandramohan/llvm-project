@@ -2889,7 +2889,11 @@ def CIR_RemOp : CIR_BinaryOp<"rem", CIR_AnyIntOrVecOfIntType> {
 // and result must all be the same floating-point scalar or vector type.
 //
 // The optional `fenv` attribute describes constraints on the floating-point
-// handling of the operation.
+// handling of the operation. The discardable unit attribute `cir.contract`
+// on cir.fmul and cir.fadd permits contraction when present on both members
+// of a multiply/add pair. It does not authorize reassociation, and constrained
+// operations still obey their fenv. CIRGen uses this for -ffp-contract=fast;
+// statement-local permission is represented by cir.fmuladd.
 class CIR_FPBinaryOp<string mnemonic, list<Trait> traits = []>
     : CIR_BinaryOp<mnemonic, CIR_AnyFloatOrVecOfFloatType,
                    !listconcat(CIR_FenvOpTraits, traits),
